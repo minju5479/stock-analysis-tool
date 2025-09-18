@@ -7,7 +7,10 @@ import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import asyncio
-from typing import Dict, Any
+import numpy as np
+from typing import Dict, Any, List, Tuple
+from scipy import stats
+from scipy.signal import find_peaks
 
 from .renderers import ChartRenderer
 from .formatters import ChartFormatters
@@ -212,6 +215,289 @@ class ChartAnalyzer:
         
         return fig
     
+    def calculate_support_resistance(self, df: pd.DataFrame, window: int = 20) -> Dict[str, List[float]]:
+        """지지선과 저항선을 계산합니다."""
+        high_prices = df['High'].values
+        low_prices = df['Low'].values
+        close_prices = df['Close'].values
+        
+        # 피크와 밸리 찾기
+        high_peaks, _ = find_peaks(high_prices, distance=window//2)
+        low_peaks, _ = find_peaks(-low_prices, distance=window//2)
+        
+        # 저항선 계산 (최고점들)
+        resistance_levels = []
+        if len(high_peaks) >= 2:
+            resistance_prices = high_prices[high_peaks]
+            # 빈도 기반으로 주요 저항선 찾기
+            for price in resistance_prices:
+                count = np.sum(np.abs(resistance_prices - price) <= price * 0.02)  # 2% 범위
+                if count >= 2:  # 최소 2번 이상 터치된 레벨
+                    resistance_levels.append(price)
+        
+        # 지지선 계산 (최저점들)
+        support_levels = []
+        if len(low_peaks) >= 2:
+            support_prices = low_prices[low_peaks]
+            for price in support_prices:
+                count = np.sum(np.abs(support_prices - price) <= price * 0.02)  # 2% 범위
+                if count >= 2:  # 최소 2번 이상 터치된 레벨
+                    support_levels.append(price)
+        
+        # 중복 제거 및 정렬
+        resistance_levels = sorted(list(set([round(r, 2) for r in resistance_levels])), reverse=True)
+        support_levels = sorted(list(set([round(s, 2) for s in support_levels])))
+        
+        return {
+            'resistance': resistance_levels[:3],  # 상위 3개만
+            'support': support_levels[-3:]  # 하위 3개만
+        }
+    
+    def calculate_fibonacci_levels(self, df: pd.DataFrame, lookback: int = 100) -> Dict[str, float]:
+        """피보나치 되돌림 레벨을 계산합니다."""
+        if len(df) < lookback:
+            lookback = len(df)
+        
+        recent_data = df.tail(lookback)
+        high_price = recent_data['High'].max()
+        low_price = recent_data['Low'].min()
+        
+        diff = high_price - low_price
+        
+        fibonacci_levels = {
+            '0.0': high_price,
+            '23.6': high_price - (diff * 0.236),
+            '38.2': high_price - (diff * 0.382),
+            '50.0': high_price - (diff * 0.5),
+            '61.8': high_price - (diff * 0.618),
+            '78.6': high_price - (diff * 0.786),
+            '100.0': low_price
+        }
+        
+        return fibonacci_levels
+    
+    def calculate_price_channels(self, df: pd.DataFrame, window: int = 20) -> Dict[str, pd.Series]:
+        """가격 채널을 계산합니다."""
+        # 선형 회귀 기반 채널
+        close = df['Close']
+        x = np.arange(len(close))
+        
+        # 채널 계산을 위한 롤링 윈도우
+        upper_channel = pd.Series(index=close.index, dtype=float)
+        lower_channel = pd.Series(index=close.index, dtype=float)
+        middle_channel = pd.Series(index=close.index, dtype=float)
+        
+        for i in range(window, len(close)):
+            y = close.iloc[i-window:i].values
+            x_window = np.arange(window)
+            
+            # 선형 회귀
+            slope, intercept, _, _, std_err = stats.linregress(x_window, y)
+            
+            # 채널 계산
+            residuals = y - (slope * x_window + intercept)
+            std_residuals = np.std(residuals)
+            
+            current_x = window - 1
+            middle_value = slope * current_x + intercept
+            
+            middle_channel.iloc[i] = middle_value
+            upper_channel.iloc[i] = middle_value + (2 * std_residuals)
+            lower_channel.iloc[i] = middle_value - (2 * std_residuals)
+        
+        return {
+            'upper': upper_channel.bfill(),
+            'middle': middle_channel.bfill(),
+            'lower': lower_channel.bfill()
+        }
+    
+    def create_advanced_price_chart(self, df: pd.DataFrame, ticker: str) -> go.Figure:
+        """고급 가격 차트를 생성합니다 (채널, 지지저항선, 피보나치 포함)."""
+        fig = go.Figure()
+        
+        # 캔들스틱 차트 추가
+        fig.add_trace(
+            go.Candlestick(
+                x=df.index,
+                open=df['Open'],
+                high=df['High'],
+                low=df['Low'],
+                close=df['Close'],
+                name='가격',
+                increasing_line_color='#26a69a',
+                decreasing_line_color='#ef5350',
+                increasing_fillcolor='#26a69a',
+                decreasing_fillcolor='#ef5350'
+            )
+        )
+        
+        # 가격 채널 추가
+        try:
+            channels = self.calculate_price_channels(df)
+            
+            # 상단 채널
+            fig.add_trace(
+                go.Scatter(
+                    x=df.index,
+                    y=channels['upper'],
+                    mode='lines',
+                    name='상단 채널',
+                    line=dict(color='rgba(255, 152, 0, 0.8)', width=1, dash='dash'),
+                    hovertemplate='상단 채널: %{y:.2f}<extra></extra>'
+                )
+            )
+            
+            # 중간 채널 (추세선)
+            fig.add_trace(
+                go.Scatter(
+                    x=df.index,
+                    y=channels['middle'],
+                    mode='lines',
+                    name='추세선',
+                    line=dict(color='rgba(255, 193, 7, 0.9)', width=2),
+                    hovertemplate='추세선: %{y:.2f}<extra></extra>'
+                )
+            )
+            
+            # 하단 채널
+            fig.add_trace(
+                go.Scatter(
+                    x=df.index,
+                    y=channels['lower'],
+                    mode='lines',
+                    name='하단 채널',
+                    line=dict(color='rgba(255, 152, 0, 0.8)', width=1, dash='dash'),
+                    fill='tonexty',
+                    fillcolor='rgba(255, 193, 7, 0.1)',
+                    hovertemplate='하단 채널: %{y:.2f}<extra></extra>'
+                )
+            )
+        except Exception as e:
+            print(f"채널 계산 오류: {e}")
+        
+        # 지지선과 저항선 추가
+        try:
+            support_resistance = self.calculate_support_resistance(df)
+            
+            # 저항선 추가
+            for i, resistance in enumerate(support_resistance['resistance']):
+                fig.add_hline(
+                    y=resistance,
+                    line=dict(color='rgba(244, 67, 54, 0.7)', width=2, dash='dot'),
+                    annotation_text=f'저항선 {i+1}: {resistance:.2f}',
+                    annotation_position='top right'
+                )
+            
+            # 지지선 추가
+            for i, support in enumerate(support_resistance['support']):
+                fig.add_hline(
+                    y=support,
+                    line=dict(color='rgba(76, 175, 80, 0.7)', width=2, dash='dot'),
+                    annotation_text=f'지지선 {i+1}: {support:.2f}',
+                    annotation_position='bottom right'
+                )
+        except Exception as e:
+            print(f"지지저항선 계산 오류: {e}")
+        
+        # 피보나치 되돌림 레벨 추가
+        try:
+            fib_levels = self.calculate_fibonacci_levels(df)
+            
+            fib_colors = {
+                '23.6': 'rgba(156, 39, 176, 0.6)',
+                '38.2': 'rgba(103, 58, 183, 0.6)',
+                '50.0': 'rgba(63, 81, 181, 0.8)',
+                '61.8': 'rgba(33, 150, 243, 0.6)',
+                '78.6': 'rgba(0, 188, 212, 0.6)'
+            }
+            
+            for level, price in fib_levels.items():
+                if level in fib_colors:
+                    fig.add_hline(
+                        y=price,
+                        line=dict(color=fib_colors[level], width=1, dash='longdash'),
+                        annotation_text=f'Fib {level}%: {price:.2f}',
+                        annotation_position='left'
+                    )
+        except Exception as e:
+            print(f"피보나치 레벨 계산 오류: {e}")
+        
+        # 이동평균선 추가
+        try:
+            # 20일 이동평균
+            ma20 = df['Close'].rolling(window=20).mean()
+            fig.add_trace(
+                go.Scatter(
+                    x=df.index,
+                    y=ma20,
+                    mode='lines',
+                    name='MA20',
+                    line=dict(color='rgba(255, 87, 34, 0.8)', width=1),
+                    hovertemplate='MA20: %{y:.2f}<extra></extra>'
+                )
+            )
+            
+            # 50일 이동평균
+            if len(df) >= 50:
+                ma50 = df['Close'].rolling(window=50).mean()
+                fig.add_trace(
+                    go.Scatter(
+                        x=df.index,
+                        y=ma50,
+                        mode='lines',
+                        name='MA50',
+                        line=dict(color='rgba(121, 85, 72, 0.8)', width=2),
+                        hovertemplate='MA50: %{y:.2f}<extra></extra>'
+                    )
+                )
+        except Exception as e:
+            print(f"이동평균 계산 오류: {e}")
+        
+        # 레이아웃 설정
+        fig.update_layout(
+            title=f'{ticker} - 고급 차트 분석 (채널, 지지저항선, 피보나치)',
+            yaxis_title='가격',
+            xaxis_title='날짜',
+            template='plotly_white',
+            height=700,
+            showlegend=True,
+            legend=dict(
+                yanchor="top",
+                y=0.99,
+                xanchor="left",
+                x=0.01,
+                bgcolor="rgba(255,255,255,0.8)",
+                bordercolor="rgba(0,0,0,0.2)",
+                borderwidth=1
+            ),
+            xaxis=dict(
+                rangeslider=dict(visible=False),
+                type='date'
+            ),
+            yaxis=dict(
+                fixedrange=False
+            )
+        )
+        
+        # 범위 선택 버튼 추가
+        fig.update_layout(
+            xaxis=dict(
+                rangeselector=dict(
+                    buttons=list([
+                        dict(count=1, label="1M", step="month", stepmode="backward"),
+                        dict(count=3, label="3M", step="month", stepmode="backward"),
+                        dict(count=6, label="6M", step="month", stepmode="backward"),
+                        dict(count=1, label="1Y", step="year", stepmode="backward"),
+                        dict(step="all")
+                    ])
+                ),
+                rangeslider=dict(visible=False),
+                type="date"
+            )
+        )
+        
+        return fig
+    
     async def generate_charts(self, ticker: str, period: str = "1y") -> Dict[str, go.Figure]:
         """모든 차트를 생성합니다."""
         try:
@@ -228,7 +514,8 @@ class ChartAnalyzer:
             charts = {
                 'candlestick': self.create_candlestick_chart(df, ticker, indicators),
                 'price': self.create_price_chart(df, ticker),
-                'technical': self.create_technical_analysis_chart(df, ticker, indicators)
+                'technical': self.create_technical_analysis_chart(df, ticker, indicators),
+                'advanced_price': self.create_advanced_price_chart(df, ticker)
             }
             
             return charts

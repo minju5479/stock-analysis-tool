@@ -465,7 +465,7 @@ def display_earnings_analysis(earnings_analysis, ticker):
                 "EPS 추정치": f"${eps:.2f}" if isinstance(eps, (int, float)) else "N/A",
                 "매출 추정치": format_large_number(rev) if isinstance(rev, (int, float)) else "N/A",
             })
-        st.dataframe(pd.DataFrame(table), use_container_width=True)
+        st.dataframe(pd.DataFrame(table), width="stretch")
     
     # 최근 어닝 이력
     earnings_history = earnings_analysis.get('earnings_history', [])
@@ -485,7 +485,7 @@ def display_earnings_analysis(earnings_analysis, ticker):
         
         if history_data:
             df_history = pd.DataFrame(history_data)
-            st.dataframe(df_history, use_container_width=True)
+            st.dataframe(df_history, width="stretch")
     
     # 어닝 캘린더
     calendar = earnings_analysis.get('earnings_calendar', {})
@@ -676,7 +676,7 @@ def display_backtest_section(ticker: str, period: str):
 
         with st.expander("체결 내역 보기"):
             if not trades.empty:
-                st.dataframe(trades.tail(20), use_container_width=True)
+                st.dataframe(trades.tail(20), width="stretch")
             else:
                 st.write("체결 내역 없음")
     except Exception as e:
@@ -869,7 +869,7 @@ def display_portfolio_management_page():
         
         # 추가 버튼을 별도 행으로 배치
         st.markdown("<br>", unsafe_allow_html=True)
-        if st.button("🚀 주식 추가", type="secondary", use_container_width=True):
+        if st.button("🚀 주식 추가", type="secondary", width="stretch"):
             if new_ticker and new_quantity > 0 and new_avg_price > 0:
                 st.session_state.portfolio_stocks.append({
                     "ticker": new_ticker.upper().strip(),
@@ -1060,7 +1060,7 @@ def display_portfolio_management_page():
         col1, col2 = st.columns([1, 1])
         
         with col1:
-            if st.button("🔍 포트폴리오 종합 분석", type="primary", use_container_width=True):
+            if st.button("🔍 포트폴리오 종합 분석", type="primary", width="stretch"):
                 st.subheader("📈 포트폴리오 종합 분석")
                 
                 total_investment = sum(stock['quantity'] * stock['avg_price'] for stock in st.session_state.portfolio_stocks)
@@ -1113,7 +1113,7 @@ def display_portfolio_management_page():
                 st.markdown(analysis_text)
         
         with col2:
-            if st.button("🤖 전체 AI 분석 실행", type="secondary", use_container_width=True):
+            if st.button("🤖 전체 AI 분석 실행", type="secondary", width="stretch"):
                 st.subheader("🤖 전체 포트폴리오 AI 분석")
                 
                 progress_bar = st.progress(0)
@@ -1214,7 +1214,7 @@ def display_undervalued_screening_page():
             )
     
     # 스크리닝 실행 버튼
-    if st.button("🚀 스크리닝 시작", type="secondary", use_container_width=True):
+    if st.button("🚀 스크리닝 시작", type="secondary", width="stretch"):
         
         with st.spinner("🔍 전체 종목을 분석하고 있습니다... (수 분이 소요될 수 있습니다)"):
             try:
@@ -1312,7 +1312,7 @@ def display_undervalued_screening_page():
                         return [''] * len(row)
                 
                 styled_df = df.style.apply(highlight_score, axis=1)
-                st.dataframe(styled_df, use_container_width=True)
+                st.dataframe(styled_df, width="stretch")
                 
                 # 상세 분석 섹션
                 st.subheader("📈 상위 종목 상세 분석")
@@ -1499,7 +1499,7 @@ def main():
                 if st.button(
                     f"**{mode['title']}**", 
                     key=f"mode_{mode['key']}", 
-                    use_container_width=True,
+                    width="stretch",
                     help=f"{mode['title']}: {mode['desc']}"
                 ):
                     st.session_state.page_mode = mode['key']
@@ -1700,7 +1700,7 @@ def main():
             }
         
         # 분석 버튼
-        analyze_button = st.button("🚀 분석 시작", type="secondary", use_container_width=True)
+        analyze_button = st.button("🚀 분석 시작", type="secondary", width="stretch")
         st.markdown("---")
     else:
         # 다른 모드에서는 기본 변수 설정
@@ -1782,7 +1782,7 @@ def main():
                     # 차트 타입 선택
                     chart_type = st.selectbox(
                         "차트 타입 선택",
-                        ["캔들스틱 차트", "가격 차트", "기술적 지표 차트"],
+                        ["캔들스틱 차트", "가격 차트", "기술적 지표 차트", "고급 가격 차트 (채널/지지저항선/피보나치)"],
                         key="chart_type_selector",
                         help="보고 싶은 차트 타입을 선택하세요"
                     )
@@ -1796,7 +1796,7 @@ def main():
                                 chart_data = asyncio.run(get_processed_df_async(ticker_to_analyze, period))
                                 if chart_data is not None and not chart_data.empty and len(chart_data) > 20:
                                     # NaN 값 처리
-                                    chart_data = chart_data.fillna(method='ffill').fillna(method='bfill')
+                                    chart_data = chart_data.ffill().bfill()
                                     
                                     # 차트 생성
                                     st.session_state.charts = asyncio.run(generate_charts_async(ticker_to_analyze, period))
@@ -1806,11 +1806,13 @@ def main():
                             
                             if st.session_state.charts is not None:
                                 if chart_type == "캔들스틱 차트" and 'candlestick' in st.session_state.charts:
-                                    st.plotly_chart(st.session_state.charts['candlestick'], use_container_width=True)
+                                    st.plotly_chart(st.session_state.charts['candlestick'], width='stretch')
                                 elif chart_type == "가격 차트" and 'price' in st.session_state.charts:
-                                    st.plotly_chart(st.session_state.charts['price'], use_container_width=True)
+                                    st.plotly_chart(st.session_state.charts['price'], width='stretch')
                                 elif chart_type == "기술적 지표 차트" and 'technical' in st.session_state.charts:
-                                    st.plotly_chart(st.session_state.charts['technical'], use_container_width=True)
+                                    st.plotly_chart(st.session_state.charts['technical'], width='stretch')
+                                elif chart_type == "고급 가격 차트 (채널/지지저항선/피보나치)" and 'advanced_price' in st.session_state.charts:
+                                    st.plotly_chart(st.session_state.charts['advanced_price'], width='stretch')
                                 else:
                                     st.warning(f"{chart_type}를 사용할 수 없습니다.")
                             else:
@@ -1822,6 +1824,7 @@ def main():
                             - **캔들스틱 차트**: 가격 변동, 이동평균선, 볼린저 밴드, 거래량, RSI, MACD를 한 번에 볼 수 있습니다
                             - **가격 차트**: 간단한 가격 추이와 거래량을 확인할 수 있습니다
                             - **기술적 지표 차트**: RSI, MACD, 볼린저 밴드, 스토캐스틱을 상세히 분석할 수 있습니다
+                            - **고급 가격 차트**: 채널, 지지선/저항선, 피보나치 되돌림 레벨을 포함한 고급 차트 분석
                             """)
                             
                         except Exception as e:
@@ -1833,7 +1836,7 @@ def main():
                     
                     # 상세 데이터 (접을 수 있는 섹션)
                     with st.expander("📊 상세 데이터 보기"):
-                        st.json(result)
+                        st.json(st.session_state.analysis_result)
                 
             except Exception as e:
                 st.error(f"❌ 분석 중 오류가 발생했습니다: {str(e)}")
@@ -1895,7 +1898,7 @@ def main():
                 )
             
             # 추천 시작 버튼
-            if st.button("🚀 전략 추천 시작", type="secondary", use_container_width=True, key="start_recommendation"):
+            if st.button("🚀 전략 추천 시작", type="secondary", width="stretch", key="start_recommendation"):
                 final_ticker = custom_rec_ticker if custom_rec_ticker else rec_ticker
                 
                 if final_ticker:
